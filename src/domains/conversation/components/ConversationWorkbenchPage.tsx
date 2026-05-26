@@ -27,6 +27,7 @@ export function ConversationWorkbenchPage() {
   const latestRequest = useObservabilityStore((state) => state.latestRequest)
   const settings = useSettingsStore((state) => state.settings)
   const [draft, setDraft] = useState('')
+  const [nowTimestamp, setNowTimestamp] = useState(() => Date.now())
   const [environmentNotice, setEnvironmentNotice] = useState<string | null>(null)
   const [isEnvironmentEditorOpen, setIsEnvironmentEditorOpen] = useState(false)
   const activeConversationSettings = activeConversationId
@@ -61,6 +62,64 @@ export function ConversationWorkbenchPage() {
     !isSending &&
     latestRequest.status === 'failed' &&
     latestRequest.conversationId === activeConversationId
+
+  useEffect(() => {
+    if (latestRequest.status !== 'pending' || !latestRequest.startedAt) {
+      return
+    }
+
+    setNowTimestamp(Date.now())
+
+    const timer = window.setInterval(() => {
+      setNowTimestamp(Date.now())
+    }, 1000)
+
+    return () => window.clearInterval(timer)
+  }, [latestRequest.status, latestRequest.startedAt])
+
+  const latestRequestElapsedMs = useMemo(() => {
+    if (latestRequest.status !== 'pending' || !latestRequest.startedAt) {
+      return latestRequest.latencyMs
+    }
+
+    const startedAt = Date.parse(latestRequest.startedAt)
+
+    if (Number.isNaN(startedAt)) {
+      return latestRequest.latencyMs
+    }
+
+    return Math.max(0, nowTimestamp - startedAt)
+  }, [latestRequest.latencyMs, latestRequest.startedAt, latestRequest.status, nowTimestamp])
+
+  const hasFinalUsage =
+    latestRequest.requestTotalTokens !== null ||
+    latestRequest.promptTokens !== null ||
+    latestRequest.completionTokens !== null ||
+    latestRequest.usageSource !== 'unknown' ||
+    latestRequest.estimatedCostUsd > 0
+
+  const latestRequestTokenDisplay =
+    latestRequest.status === 'pending' ||
+    (latestRequest.status !== 'completed' && !hasFinalUsage)
+      ? '--'
+      : String(latestRequest.requestTotalTokens ?? 0)
+
+  const latestRequestCostDisplay =
+    latestRequest.status === 'pending' ||
+    (latestRequest.status !== 'completed' && !hasFinalUsage)
+      ? '--'
+      : `$${latestRequest.estimatedCostUsd.toFixed(4)}`
+
+  const latestRequestSourceDisplay =
+    latestRequest.status === 'pending' ||
+    (latestRequest.status !== 'completed' && !hasFinalUsage)
+      ? '--'
+      : latestRequest.usageSource
+
+  const latestRequestLatencyDisplay =
+    latestRequestElapsedMs < 1000
+      ? `${latestRequestElapsedMs} ms`
+      : `${(latestRequestElapsedMs / 1000).toFixed(latestRequestElapsedMs < 10_000 ? 1 : 0)} s`
 
   useEffect(() => {
     const snapshot = activeConversationSettings ?? {
@@ -217,7 +276,7 @@ export function ConversationWorkbenchPage() {
             </article>
           ) : null}
           {canRetryLatestFailedMessage ? (
-            <div className="message-failure-note">上一轮请求失败，可直接重试。</div>
+            <div className="message-failure-note">请求失败</div>
           ) : null}
           {activeMessages.length === 0 && !activeStreamingMessage ? (
             <div className="empty-state">
@@ -247,7 +306,7 @@ export function ConversationWorkbenchPage() {
                   type="button"
                   onClick={retryLatestFailedMessage}
                 >
-                  重试上一轮
+                  重试
                 </button>
               ) : null}
               <button
@@ -320,19 +379,19 @@ export function ConversationWorkbenchPage() {
               </div>
               <div>
                 <dt>本次 Token</dt>
-                <dd>{latestRequest.requestTotalTokens ?? 0}</dd>
+                <dd>{latestRequestTokenDisplay}</dd>
               </div>
               <div>
                 <dt>延迟</dt>
-                <dd>{latestRequest.latencyMs} ms</dd>
+                <dd>{latestRequestLatencyDisplay}</dd>
               </div>
               <div>
                 <dt>成本</dt>
-                <dd>${latestRequest.estimatedCostUsd.toFixed(4)}</dd>
+                <dd>{latestRequestCostDisplay}</dd>
               </div>
               <div>
                 <dt>来源</dt>
-                <dd>{latestRequest.usageSource}</dd>
+                <dd>{latestRequestSourceDisplay}</dd>
               </div>
             </div>
             <details className="request-details">
