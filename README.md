@@ -48,25 +48,20 @@ Ego 未来希望演进为个人 AI 操作系统，逐步具备：
 
 ## 文档
 
+优先入口：
+
+- [文档导航](./docs/README.md)
+
+当前最值得先读的正式文档：
+
 - [架构师协议](./docs/00-governance/架构师协议.md)
-- [文档组织规范](./docs/00-governance/文档组织规范.md)
-- [提交历史规划](./docs/00-governance/提交历史规划.md)
 - [产品需求文档](./docs/10-product/PRD-v0.1.md)
 - [信息架构](./docs/10-product/信息架构-v0.1.md)
-- [对话工作台布局规范](./docs/10-product/对话工作台布局规范-v0.1.md)
-- [会话分析页指标规范](./docs/10-product/会话分析页指标规范-v0.1.md)
-- [全局设置与会话覆盖交互规范](./docs/10-product/全局设置与会话覆盖交互规范-v0.1.md)
 - [v0.1 实现优先级与里程碑](./docs/10-product/v0.1-实现优先级与里程碑.md)
-- [M1 开发任务分解](./docs/10-product/M1-开发任务分解.md)
-- [架构基线](./docs/20-architecture/架构基线-v0.1.md)
 - [实现基线与工程选型](./docs/20-architecture/实现基线与工程选型-v0.1.md)
-- [数据模型](./docs/20-architecture/数据模型-v0.1.md)
-- [参数分层与配置规则](./docs/20-architecture/参数分层与配置规则-v0.1.md)
-- [请求生命周期与消息流规范](./docs/20-architecture/请求生命周期与消息流规范-v0.1.md)
-- [流式输出与失败恢复规范](./docs/20-architecture/流式输出与失败恢复规范-v0.1.md)
-- [本地持久化与配置存储规范](./docs/20-architecture/本地持久化与配置存储规范-v0.1.md)
-- [可观测性规范](./docs/20-architecture/可观测性规范-v0.1.md)
 - [关键决策记录](./docs/30-decisions/决策记录.md)
+
+其他规范与阶段性文档，统一从 [文档导航](./docs/README.md) 进入，不再在这里平铺完整清单。
 
 ## 本地启动
 
