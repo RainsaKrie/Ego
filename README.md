@@ -50,6 +50,7 @@ Ego 未来希望演进为个人 AI 操作系统，逐步具备：
 
 - [架构师协议](./docs/00-governance/架构师协议.md)
 - [文档组织规范](./docs/00-governance/文档组织规范.md)
+- [提交历史规划](./docs/00-governance/提交历史规划.md)
 - [产品需求文档](./docs/10-product/PRD-v0.1.md)
 - [信息架构](./docs/10-product/信息架构-v0.1.md)
 - [对话工作台布局规范](./docs/10-product/对话工作台布局规范-v0.1.md)
@@ -67,8 +68,42 @@ Ego 未来希望演进为个人 AI 操作系统，逐步具备：
 - [可观测性规范](./docs/20-architecture/可观测性规范-v0.1.md)
 - [关键决策记录](./docs/30-decisions/决策记录.md)
 
+## 本地启动
+
+### 安装依赖
+
+```bash
+npm install
+```
+
+### 启动 Web 开发环境
+
+```bash
+npm run dev
+```
+
+### 启动桌面端开发环境
+
+```bash
+npm run tauri dev
+```
+
+### 构建校验
+
+```bash
+npm run build
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
 ## 当前阶段
 
-当前阶段为：规划与文档基线搭建。
+当前阶段为：`M2` 主线推进中。
 
-在正式进入实现前，仓库会先把产品边界、架构原则和核心对象模型确定下来。
+当前仓库已经完成：
+
+- `M1` 核心主链落地
+- 真实流式输出接入
+- 流式过程中的手动中止
+- 最近失败请求的轻量重试
+
+接下来会继续围绕 `M2` 做失败恢复、观测补强和交互收口。
