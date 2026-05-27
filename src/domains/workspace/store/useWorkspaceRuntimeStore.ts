@@ -6,7 +6,7 @@ type WorkspaceRuntimeState = {
   activeConversationId: string | null
   rightRailCollapsed: boolean
   messageRuntime: Record<string, MessageStatus>
-  setActiveConversation: (conversationId: string) => void
+  setActiveConversation: (conversationId: string | null) => void
   setRightRailCollapsed: (collapsed: boolean) => void
   setMessageRuntimeStatus: (messageId: string, status: MessageStatus) => void
 }

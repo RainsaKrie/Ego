@@ -1,5 +1,6 @@
 import { ConversationRepository } from './conversationRepository'
-import { Conversation, Message } from '../../../shared/types/domain'
+import { Conversation, Message, WorkspaceBootstrap } from '../../../shared/types/domain'
+import { mockWorkspaceBootstrap } from '../../workspace/repository/mockWorkspaceBootstrap'
 
 const conversations: Conversation[] = [
   {
@@ -58,5 +59,35 @@ export const mockConversationRepository: ConversationRepository = {
 
     conversations.unshift(conversation)
     return conversation
+  },
+  async deleteConversation(conversationId: string): Promise<WorkspaceBootstrap> {
+    mockWorkspaceBootstrap.conversations =
+      mockWorkspaceBootstrap.conversations.filter(
+        (conversation) => conversation.id !== conversationId,
+      )
+    delete mockWorkspaceBootstrap.messagesByConversationId[conversationId]
+    delete mockWorkspaceBootstrap.conversationSettingsById[conversationId]
+
+    if (mockWorkspaceBootstrap.latestRequest.conversationId === conversationId) {
+      mockWorkspaceBootstrap.latestRequest = {
+        ...mockWorkspaceBootstrap.latestRequest,
+        status: 'idle',
+        conversationId: null,
+        requestId: null,
+        model: null,
+        memoryPolicy: null,
+        promptTokens: null,
+        completionTokens: null,
+        requestTotalTokens: null,
+        latencyMs: 0,
+        estimatedCostUsd: 0,
+        usageSource: 'unknown',
+        startedAt: null,
+        finishedAt: null,
+        errorMessage: null,
+      }
+    }
+
+    return mockWorkspaceBootstrap
   },
 }

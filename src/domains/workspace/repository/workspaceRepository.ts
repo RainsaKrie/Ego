@@ -1,6 +1,8 @@
 import { invokeBackend, hasTauriBackend } from '../../../shared/infra/tauri'
 import {
+  AvailableModelsResult,
   ConversationSettingsSnapshot,
+  ProviderProfile,
   RetryMessageResult,
   SendMessageResult,
   SettingsSnapshot,
@@ -16,11 +18,32 @@ export const workspaceRepository = {
 
     return invokeBackend<WorkspaceBootstrap>('bootstrap_workspace')
   },
-  async saveSettings(settings: Omit<SettingsSnapshot, 'hasApiKey' | 'pricePreset'>) {
+  async saveSettings(settings: {
+    baseUrl: string
+    model: string
+    temperature: number
+    topP: number
+    maxOutputTokens: number
+    memoryPolicy: SettingsSnapshot['memoryPolicy']
+  }) {
     if (!hasTauriBackend()) {
+      const providerProfiles = mockWorkspaceBootstrap.settings.providerProfiles.map((profile) =>
+        profile.id === mockWorkspaceBootstrap.settings.activeProviderId
+          ? {
+              ...profile,
+              baseUrl: settings.baseUrl,
+              defaultModel: settings.model,
+              temperature: settings.temperature,
+              topP: settings.topP,
+              maxOutputTokens: settings.maxOutputTokens,
+              memoryPolicy: settings.memoryPolicy,
+            }
+          : profile,
+      )
       mockWorkspaceBootstrap.settings = {
         ...mockWorkspaceBootstrap.settings,
         ...settings,
+        providerProfiles,
       }
 
       return mockWorkspaceBootstrap.settings
@@ -30,21 +53,89 @@ export const workspaceRepository = {
       input: settings,
     })
   },
-  async setApiKey(apiKey: string) {
+  async saveProviderProfiles(
+    providerProfiles: ProviderProfile[],
+    activeProviderId: string,
+  ) {
     if (!hasTauriBackend()) {
-      mockWorkspaceBootstrap.settings.hasApiKey = true
-      return
+      mockWorkspaceBootstrap.settings.providerProfiles = providerProfiles
+      mockWorkspaceBootstrap.settings.activeProviderId = activeProviderId
+      const activeProvider =
+        providerProfiles.find((profile) => profile.id === activeProviderId) ??
+        providerProfiles[0]
+
+      mockWorkspaceBootstrap.settings = {
+        ...mockWorkspaceBootstrap.settings,
+        baseUrl: activeProvider.baseUrl,
+        model: activeProvider.defaultModel,
+        temperature: activeProvider.temperature,
+        topP: activeProvider.topP,
+        maxOutputTokens: activeProvider.maxOutputTokens,
+        memoryPolicy: activeProvider.memoryPolicy,
+        hasApiKey: activeProvider.hasApiKey,
+        activeProviderId,
+        providerProfiles,
+      }
+
+      return mockWorkspaceBootstrap.settings
     }
 
-    await invokeBackend('set_api_key', { apiKey })
+    return invokeBackend<SettingsSnapshot>('save_provider_profiles', {
+      input: {
+        activeProviderId,
+        providerProfiles,
+      },
+    })
   },
-  async clearApiKey() {
+  async fetchAvailableModels(
+    providerId: string,
+    baseUrl: string,
+  ): Promise<AvailableModelsResult> {
     if (!hasTauriBackend()) {
-      mockWorkspaceBootstrap.settings.hasApiKey = false
+      return {
+        models: [
+          'gpt-4.1-mini',
+          'gpt-4.1',
+          'gpt-4o-mini',
+          'gpt-4o',
+          'gemini-3.1-pro-preview',
+        ],
+      }
+    }
+
+    const models = await invokeBackend<string[]>('fetch_available_models', {
+      providerId,
+      baseUrl,
+    })
+    return { models }
+  },
+  async setApiKey(providerId: string, apiKey: string) {
+    if (!hasTauriBackend()) {
+      mockWorkspaceBootstrap.settings.providerProfiles =
+        mockWorkspaceBootstrap.settings.providerProfiles.map((profile) =>
+          profile.id === providerId ? { ...profile, hasApiKey: true } : profile,
+        )
+      if (mockWorkspaceBootstrap.settings.activeProviderId === providerId) {
+        mockWorkspaceBootstrap.settings.hasApiKey = true
+      }
       return
     }
 
-    await invokeBackend('clear_api_key')
+    await invokeBackend('set_api_key', { providerId, apiKey })
+  },
+  async clearApiKey(providerId: string) {
+    if (!hasTauriBackend()) {
+      mockWorkspaceBootstrap.settings.providerProfiles =
+        mockWorkspaceBootstrap.settings.providerProfiles.map((profile) =>
+          profile.id === providerId ? { ...profile, hasApiKey: false } : profile,
+        )
+      if (mockWorkspaceBootstrap.settings.activeProviderId === providerId) {
+        mockWorkspaceBootstrap.settings.hasApiKey = false
+      }
+      return
+    }
+
+    await invokeBackend('clear_api_key', { providerId })
   },
   async saveConversationSettings(
     conversationId: string,

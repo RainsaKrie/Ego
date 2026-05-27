@@ -12,6 +12,24 @@ pub struct SettingsSnapshotDto {
     pub memory_policy: String,
     pub has_api_key: bool,
     pub price_preset: &'static str,
+    pub active_provider_id: String,
+    pub provider_profiles: Vec<ProviderProfileDto>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderProfileDto {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub default_model: String,
+    pub temperature: f64,
+    pub top_p: f64,
+    pub max_output_tokens: i64,
+    pub memory_policy: String,
+    pub enabled: bool,
+    pub has_api_key: bool,
+    pub discovered_models: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -35,6 +53,13 @@ pub struct SaveSettingsInput {
     pub top_p: f64,
     pub max_output_tokens: i64,
     pub memory_policy: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveProviderProfilesInput {
+    pub active_provider_id: String,
+    pub provider_profiles: Vec<ProviderProfileDto>,
 }
 
 #[derive(Debug, Clone, Serialize)]

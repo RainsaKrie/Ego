@@ -3,8 +3,9 @@ mod models;
 mod secrets;
 
 use models::{
-    BootstrapWorkspacePayload, ConversationDto, ConversationSettingsDto, SaveSettingsInput,
-    RetryMessageResultDto, SendMessageInput, SendMessageResultDto, SettingsSnapshotDto,
+    BootstrapWorkspacePayload, ConversationDto, ConversationSettingsDto, SaveProviderProfilesInput,
+    SaveSettingsInput, RetryMessageResultDto, SendMessageInput, SendMessageResultDto,
+    SettingsSnapshotDto,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,6 +53,17 @@ fn create_conversation(app: AppHandle, title: Option<String>) -> Result<Conversa
 }
 
 #[tauri::command]
+fn delete_conversation(
+    app: AppHandle,
+    conversation_id: String,
+) -> Result<BootstrapWorkspacePayload, String> {
+    let database = db::Database::new(&app).map_err(|error| error.to_string())?;
+    database
+        .delete_conversation(&conversation_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn save_global_settings(
     app: AppHandle,
     input: SaveSettingsInput,
@@ -63,16 +75,40 @@ fn save_global_settings(
 }
 
 #[tauri::command]
-fn set_api_key(api_key: String) -> Result<(), String> {
-    secrets::SecretStore::new()
-        .set_api_key(api_key)
+fn save_provider_profiles(
+    app: AppHandle,
+    input: SaveProviderProfilesInput,
+) -> Result<SettingsSnapshotDto, String> {
+    let database = db::Database::new(&app).map_err(|error| error.to_string())?;
+    database
+        .save_provider_profiles(input)
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn clear_api_key() -> Result<(), String> {
+fn set_api_key(provider_id: String, api_key: String) -> Result<(), String> {
     secrets::SecretStore::new()
-        .clear_api_key()
+        .set_api_key(&provider_id, api_key)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn clear_api_key(provider_id: String) -> Result<(), String> {
+    secrets::SecretStore::new()
+        .clear_api_key(&provider_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn fetch_available_models(
+    app: AppHandle,
+    provider_id: String,
+    base_url: String,
+) -> Result<Vec<String>, String> {
+    let database = db::Database::new(&app).map_err(|error| error.to_string())?;
+    database
+        .fetch_available_models(provider_id, base_url)
+        .await
         .map_err(|error| error.to_string())
 }
 
@@ -151,11 +187,14 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             bootstrap_workspace,
             create_conversation,
+            delete_conversation,
             save_global_settings,
+            save_provider_profiles,
             save_conversation_settings,
             reset_conversation_settings,
             set_api_key,
             clear_api_key,
+            fetch_available_models,
             send_message,
             retry_latest_failed_request,
             stop_streaming

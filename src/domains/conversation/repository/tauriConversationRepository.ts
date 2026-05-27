@@ -1,5 +1,5 @@
 import { invokeBackend, hasTauriBackend } from '../../../shared/infra/tauri'
-import { Conversation } from '../../../shared/types/domain'
+import { Conversation, WorkspaceBootstrap } from '../../../shared/types/domain'
 import { mockConversationRepository } from './mockConversationRepository'
 
 export const tauriConversationRepository = {
@@ -9,5 +9,12 @@ export const tauriConversationRepository = {
     }
 
     return invokeBackend<Conversation>('create_conversation', { title })
+  },
+  async deleteConversation(conversationId: string): Promise<WorkspaceBootstrap> {
+    if (!hasTauriBackend()) {
+      return mockConversationRepository.deleteConversation(conversationId)
+    }
+
+    return invokeBackend<WorkspaceBootstrap>('delete_conversation', { conversationId })
   },
 }

@@ -71,6 +71,26 @@ export type SettingsSnapshot = {
   memoryPolicy: MemoryPolicy
   hasApiKey: boolean
   pricePreset: 'builtin'
+  activeProviderId: string
+  providerProfiles: ProviderProfile[]
+}
+
+export type AvailableModelsResult = {
+  models: string[]
+}
+
+export type ProviderProfile = {
+  id: string
+  name: string
+  baseUrl: string
+  defaultModel: string
+  temperature: number
+  topP: number
+  maxOutputTokens: number
+  memoryPolicy: MemoryPolicy
+  enabled: boolean
+  hasApiKey: boolean
+  discoveredModels: string[]
 }
 
 export type ConversationSettingsSnapshot = {

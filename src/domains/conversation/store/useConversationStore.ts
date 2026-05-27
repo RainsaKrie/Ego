@@ -39,6 +39,7 @@ type ConversationState = {
   bootstrap: () => Promise<void>
   selectConversation: (conversationId: string) => void
   createConversation: () => Promise<void>
+  deleteConversation: (conversationId: string) => Promise<void>
   saveConversationSettings: (
     settings: Omit<ConversationSettingsSnapshot, 'conversationId' | 'inheritsDefault'>,
   ) => Promise<void>
@@ -239,6 +240,34 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
     }))
 
     useWorkspaceRuntimeStore.getState().setActiveConversation(nextConversation.id)
+  },
+  async deleteConversation(conversationId) {
+    const snapshot = await conversationService.deleteConversation(conversationId)
+    const currentActiveConversationId = get().activeConversationId
+    const currentActiveConversationStillExists = snapshot.conversations.some(
+      (conversation) => conversation.id === currentActiveConversationId,
+    )
+    const nextActiveConversationId = currentActiveConversationStillExists
+      ? currentActiveConversationId
+      : snapshot.conversations[0]?.id ?? null
+
+    set((state) => {
+      return {
+        conversations: snapshot.conversations,
+        messagesByConversationId: snapshot.messagesByConversationId,
+        conversationSettingsById: snapshot.conversationSettingsById,
+        streamingMessagesByConversationId: Object.fromEntries(
+          Object.entries(state.streamingMessagesByConversationId).filter(
+            ([streamConversationId]) => streamConversationId !== conversationId,
+          ),
+        ),
+        activeConversationId: nextActiveConversationId,
+      }
+    })
+
+    useSettingsStore.getState().setSettings(snapshot.settings)
+    useObservabilityStore.getState().setLatestRequest(snapshot.latestRequest)
+    useWorkspaceRuntimeStore.getState().setActiveConversation(nextActiveConversationId)
   },
   async saveConversationSettings(settings) {
     const conversationId = get().activeConversationId

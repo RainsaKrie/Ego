@@ -1,18 +1,35 @@
 import {
   ConversationSettingsSnapshot,
+  ProviderProfile,
   SettingsSnapshot,
   WorkspaceBootstrap,
 } from '../../../shared/types/domain'
 
-const defaultSettings: SettingsSnapshot = {
+const defaultProvider: ProviderProfile = {
+  id: 'provider-default',
+  name: '默认服务',
   baseUrl: 'https://api.openai.com/v1',
-  model: 'gpt-4.1-mini',
+  defaultModel: 'gpt-4.1-mini',
   temperature: 0.7,
   topP: 1,
   maxOutputTokens: 1024,
   memoryPolicy: 'recent-window',
+  enabled: true,
+  hasApiKey: false,
+  discoveredModels: ['gpt-4.1-mini', 'gpt-4.1', 'gpt-4o-mini', 'gpt-4o'],
+}
+
+const defaultSettings: SettingsSnapshot = {
+  baseUrl: defaultProvider.baseUrl,
+  model: defaultProvider.defaultModel,
+  temperature: defaultProvider.temperature,
+  topP: defaultProvider.topP,
+  maxOutputTokens: defaultProvider.maxOutputTokens,
+  memoryPolicy: defaultProvider.memoryPolicy,
   hasApiKey: false,
   pricePreset: 'builtin',
+  activeProviderId: defaultProvider.id,
+  providerProfiles: [defaultProvider],
 }
 
 function buildDefaultConversationSettings(

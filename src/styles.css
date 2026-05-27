@@ -194,14 +194,27 @@ button {
   line-height: 1;
 }
 
+.conversation-delete-button {
+  flex: none;
+  border: 1px solid #111111;
+  background: #ffffff;
+  padding: 2px 8px;
+}
+
 .conversation-item span,
 .inline-meta,
 .composer-footer span,
 .message header span,
 .stats-list dt,
-.stacked-definition dt {
+.stacked-definition dt,
+.helper-text {
   color: #444444;
   font-size: 13px;
+}
+
+.helper-text {
+  display: inline-block;
+  line-height: 1.5;
 }
 
 .panel-center {
@@ -397,6 +410,119 @@ button {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.provider-console {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+  min-height: 640px;
+}
+
+.provider-sidebar,
+.provider-detail {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.provider-sidebar-header,
+.provider-section-header,
+.provider-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-search {
+  display: grid;
+  gap: 6px;
+}
+
+.provider-search input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #111111;
+  background: #ffffff;
+}
+
+.provider-list {
+  display: grid;
+  gap: 8px;
+  max-height: 520px;
+  overflow: auto;
+}
+
+.provider-list-item {
+  width: 100%;
+  border: 1px solid #111111;
+  background: #ffffff;
+  text-align: left;
+  padding: 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.provider-list-item p,
+.provider-state {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #444444;
+}
+
+.provider-list-item.active,
+.provider-model-item.active {
+  border-width: 2px;
+}
+
+.provider-detail-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.provider-detail-grid label,
+.provider-search span {
+  display: grid;
+  gap: 6px;
+}
+
+.provider-detail-grid input,
+.provider-detail-grid select {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #111111;
+  background: #ffffff;
+}
+
+.provider-section {
+  display: grid;
+  gap: 12px;
+}
+
+.provider-model-list {
+  gap: 10px;
+}
+
+.provider-model-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.provider-model-item {
+  border: 1px solid #111111;
+  background: #ffffff;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.provider-detail-actions {
+  justify-content: flex-start;
+}
+
 .settings-form {
   display: grid;
   gap: 12px;
@@ -462,6 +588,11 @@ button {
 
   .panel-right {
     grid-column: 1 / -1;
+  }
+
+  .provider-console {
+    grid-template-columns: 1fr;
+    min-height: auto;
   }
 }
 

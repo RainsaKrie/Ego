@@ -8,6 +8,9 @@ export const conversationService = {
   async createConversation(title?: string) {
     return tauriConversationRepository.createConversation(title)
   },
+  async deleteConversation(conversationId: string) {
+    return tauriConversationRepository.deleteConversation(conversationId)
+  },
   async saveConversationSettings(
     conversationId: string,
     settings: {

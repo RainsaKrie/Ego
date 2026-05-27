@@ -13,6 +13,7 @@ export function ConversationWorkbenchPage() {
   )
   const selectConversation = useConversationStore((state) => state.selectConversation)
   const createConversation = useConversationStore((state) => state.createConversation)
+  const deleteConversation = useConversationStore((state) => state.deleteConversation)
   const sendMessage = useConversationStore((state) => state.sendMessage)
   const stopMessage = useConversationStore((state) => state.stopMessage)
   const retryLatestFailedMessage = useConversationStore(
@@ -166,6 +167,18 @@ export function ConversationWorkbenchPage() {
     setIsEnvironmentEditorOpen(true)
   }
 
+  async function handleDeleteConversation(conversationId: string, title: string) {
+    const confirmed = window.confirm(`确定删除会话“${title}”吗？`)
+
+    if (!confirmed) {
+      return
+    }
+
+    await deleteConversation(conversationId)
+    setIsEnvironmentEditorOpen(false)
+    setEnvironmentNotice(null)
+  }
+
   return (
     <>
       <section className="workbench-grid">
@@ -212,6 +225,16 @@ export function ConversationWorkbenchPage() {
                   onClick={() => openEnvironmentEditor(conversation.id)}
                 >
                   ...
+                </button>
+                <button
+                  className="conversation-delete-button"
+                  type="button"
+                  aria-label={`删除 ${conversation.title}`}
+                  onClick={() =>
+                    void handleDeleteConversation(conversation.id, conversation.title)
+                  }
+                >
+                  删除
                 </button>
               </div>
             ))}
@@ -554,11 +577,11 @@ export function ConversationWorkbenchPage() {
                   <option value="summary-plus-recent">summary-plus-recent</option>
                 </select>
               </label>
-              <div className="form-actions">
-                <button
-                  className="primary-button"
-                  type="submit"
-                  disabled={!activeConversationId || isSavingEnvironment}
+            <div className="form-actions">
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={!activeConversationId || isSavingEnvironment}
                 >
                   保存会话环境
                 </button>
@@ -573,6 +596,21 @@ export function ConversationWorkbenchPage() {
                   onClick={handleResetEnvironment}
                 >
                   恢复默认环境
+                </button>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  disabled={!activeConversationId || isSavingEnvironment}
+                  onClick={() =>
+                    activeConversationId && activeConversation
+                      ? void handleDeleteConversation(
+                          activeConversationId,
+                          activeConversation.title,
+                        )
+                      : undefined
+                  }
+                >
+                  删除会话
                 </button>
               </div>
             </form>

@@ -1,8 +1,8 @@
 use crate::models::{
     BootstrapWorkspacePayload, ConversationDto, ConversationSettingsDto, LatestRequestSummaryDto,
-    MessageDto, RetryMessageResultDto, SaveSettingsInput, SendMessageInput, SendMessageResultDto,
-    SettingsSnapshotDto, StreamCancelledEventDto, StreamChunkEventDto, StreamCompletedEventDto,
-    StreamFailedEventDto,
+    MessageDto, ProviderProfileDto, RetryMessageResultDto, SaveProviderProfilesInput,
+    SaveSettingsInput, SendMessageInput, SendMessageResultDto, SettingsSnapshotDto,
+    StreamCancelledEventDto, StreamChunkEventDto, StreamCompletedEventDto, StreamFailedEventDto,
 };
 use futures_util::StreamExt;
 use crate::secrets::SecretStore;
@@ -22,6 +22,7 @@ use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 const DATABASE_FILE_NAME: &str = "ego.db";
+const DEFAULT_PROVIDER_ID: &str = "provider-default";
 const STREAM_CHUNK_EVENT: &str = "conversation://stream-chunk";
 const STREAM_COMPLETED_EVENT: &str = "conversation://stream-completed";
 const STREAM_FAILED_EVENT: &str = "conversation://stream-failed";
@@ -129,17 +130,84 @@ impl Database {
         input: SaveSettingsInput,
     ) -> Result<SettingsSnapshotDto, DatabaseError> {
         let connection = self.connect()?;
-        self.upsert_setting(&connection, "base_url", &input.base_url)?;
-        self.upsert_setting(&connection, "model", &input.model)?;
-        self.upsert_setting(&connection, "temperature", &input.temperature.to_string())?;
-        self.upsert_setting(&connection, "top_p", &input.top_p.to_string())?;
-        self.upsert_setting(
-            &connection,
-            "max_output_tokens",
-            &input.max_output_tokens.to_string(),
-        )?;
-        self.upsert_setting(&connection, "memory_policy", &input.memory_policy)?;
+        let mut profiles = self.read_provider_profiles(&connection)?;
+        let active_provider_id = self.read_active_provider_id(&connection, &profiles)?;
+        if let Some(active_profile) = profiles
+            .iter_mut()
+            .find(|profile| profile.id == active_provider_id)
+        {
+            active_profile.base_url = input.base_url;
+            active_profile.default_model = input.model;
+            active_profile.temperature = input.temperature;
+            active_profile.top_p = input.top_p;
+            active_profile.max_output_tokens = input.max_output_tokens;
+            active_profile.memory_policy = input.memory_policy;
+        }
+
+        self.persist_provider_profiles(&connection, &profiles, &active_provider_id)?;
+        self.persist_legacy_active_settings(&connection, &profiles, &active_provider_id)?;
         self.read_settings(&connection)
+    }
+
+    pub fn save_provider_profiles(
+        &self,
+        input: SaveProviderProfilesInput,
+    ) -> Result<SettingsSnapshotDto, DatabaseError> {
+        let connection = self.connect()?;
+        let previous_profiles = self.read_provider_profiles(&connection)?;
+        let normalized_profiles = normalize_provider_profiles(input.provider_profiles);
+        let active_provider_id =
+            normalize_active_provider_id(&input.active_provider_id, &normalized_profiles);
+
+        for removed_provider_id in previous_profiles
+            .iter()
+            .filter(|previous| {
+                !normalized_profiles
+                    .iter()
+                    .any(|current| current.id == previous.id)
+            })
+            .map(|profile| profile.id.clone())
+        {
+            SecretStore::new().clear_api_key(&removed_provider_id).ok();
+        }
+
+        self.persist_provider_profiles(&connection, &normalized_profiles, &active_provider_id)?;
+        self.persist_legacy_active_settings(&connection, &normalized_profiles, &active_provider_id)?;
+        self.read_settings(&connection)
+    }
+
+    pub fn delete_conversation(
+        &self,
+        conversation_id: &str,
+    ) -> Result<BootstrapWorkspacePayload, DatabaseError> {
+        let connection = self.connect()?;
+
+        if !self.conversation_exists(&connection, conversation_id)? {
+            return self.bootstrap_workspace();
+        }
+
+        connection.execute(
+            "DELETE FROM usage_records WHERE request_id IN (SELECT id FROM request_records WHERE conversation_id = ?1)",
+            params![conversation_id],
+        )?;
+        connection.execute(
+            "DELETE FROM request_records WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        connection.execute(
+            "DELETE FROM conversation_settings WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        connection.execute(
+            "DELETE FROM messages WHERE conversation_id = ?1",
+            params![conversation_id],
+        )?;
+        connection.execute(
+            "DELETE FROM conversations WHERE id = ?1",
+            params![conversation_id],
+        )?;
+
+        self.bootstrap_workspace()
     }
 
     pub fn create_conversation(
@@ -221,6 +289,55 @@ impl Database {
         self.effective_conversation_settings(&connection, conversation_id)
     }
 
+    pub async fn fetch_available_models(
+        &self,
+        provider_id: String,
+        base_url: String,
+    ) -> Result<Vec<String>, DatabaseError> {
+        let api_key = SecretStore::new()
+            .get_api_key(&provider_id)
+            .map_err(|_| DatabaseError::MissingApiKey)?;
+        let client = reqwest::Client::new();
+        let request_url = models_url(&base_url);
+        let response = client
+            .get(request_url)
+            .header(AUTHORIZATION, format!("Bearer {}", api_key))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body_text = response.text().await.unwrap_or_default();
+            let body = serde_json::from_str::<Value>(&body_text).unwrap_or(Value::Null);
+            let error_message = provider_error_message(&body).unwrap_or_else(|| {
+                format!("获取模型列表失败，HTTP {}", status.as_u16())
+            });
+
+            return Err(DatabaseError::Io(std::io::Error::other(error_message)));
+        }
+
+        let body = response.json::<Value>().await?;
+        let mut models = body
+            .get("data")
+            .and_then(|value| value.as_array())
+            .map(|entries| {
+                entries
+                    .iter()
+                    .filter_map(|entry| {
+                        entry
+                            .get("id")
+                            .and_then(|value| value.as_str())
+                            .map(ToString::to_string)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+
+        models.sort();
+        models.dedup();
+        Ok(models)
+    }
+
     pub async fn send_message(
         &self,
         app: &AppHandle,
@@ -231,7 +348,7 @@ impl Database {
         let global_settings = self.read_settings(&connection)?;
         let settings = self.effective_conversation_settings(&connection, &input.conversation_id)?;
         let api_key = SecretStore::new()
-            .get_api_key()
+            .get_api_key(&global_settings.active_provider_id)
             .map_err(|_| DatabaseError::MissingApiKey)?;
 
         if !self.conversation_exists(&connection, &input.conversation_id)? {
@@ -368,6 +485,41 @@ impl Database {
             self.upsert_setting(connection, key, value)?;
         }
 
+        let has_profiles_json: i64 = connection.query_row(
+            "SELECT COUNT(*) FROM settings WHERE key = 'provider_profiles_json'",
+            [],
+            |row| row.get(0),
+        )?;
+        if has_profiles_json == 0 {
+            let default_profile = ProviderProfileDto {
+                id: DEFAULT_PROVIDER_ID.to_string(),
+                name: "默认服务".to_string(),
+                base_url: self.read_setting(connection, "base_url")?,
+                default_model: self.read_setting(connection, "model")?,
+                temperature: self
+                    .read_setting(connection, "temperature")?
+                    .parse::<f64>()
+                    .unwrap_or(0.7),
+                top_p: self
+                    .read_setting(connection, "top_p")?
+                    .parse::<f64>()
+                    .unwrap_or(1.0),
+                max_output_tokens: self
+                    .read_setting(connection, "max_output_tokens")?
+                    .parse::<i64>()
+                    .unwrap_or(1024),
+                memory_policy: self.read_setting(connection, "memory_policy")?,
+                enabled: true,
+                has_api_key: SecretStore::new().has_api_key(DEFAULT_PROVIDER_ID),
+                discovered_models: Vec::new(),
+            };
+            self.persist_provider_profiles(
+                connection,
+                &[default_profile],
+                DEFAULT_PROVIDER_ID,
+            )?;
+        }
+
         let conversation_count: i64 =
             connection.query_row("SELECT COUNT(*) FROM conversations", [], |row| row.get(0))?;
 
@@ -408,33 +560,96 @@ impl Database {
     }
 
     fn read_settings(&self, connection: &Connection) -> Result<SettingsSnapshotDto, DatabaseError> {
-        let base_url = self.read_setting(connection, "base_url")?;
-        let model = self.read_setting(connection, "model")?;
-        let temperature = self
-            .read_setting(connection, "temperature")?
-            .parse::<f64>()
-            .unwrap_or(0.7);
-        let top_p = self
-            .read_setting(connection, "top_p")?
-            .parse::<f64>()
-            .unwrap_or(1.0);
-        let max_output_tokens = self
-            .read_setting(connection, "max_output_tokens")?
-            .parse::<i64>()
-            .unwrap_or(1024);
-        let memory_policy = self.read_setting(connection, "memory_policy")?;
-        let has_api_key = SecretStore::new().has_api_key();
+        let provider_profiles = self.read_provider_profiles(connection)?;
+        let active_provider_id = self.read_active_provider_id(connection, &provider_profiles)?;
+        let active_provider = provider_profiles
+            .iter()
+            .find(|profile| profile.id == active_provider_id)
+            .cloned()
+            .unwrap_or_else(default_provider_profile);
+        let has_api_key = active_provider.has_api_key;
 
         Ok(SettingsSnapshotDto {
-            base_url,
-            model,
-            temperature,
-            top_p,
-            max_output_tokens,
-            memory_policy,
+            base_url: active_provider.base_url,
+            model: active_provider.default_model,
+            temperature: active_provider.temperature,
+            top_p: active_provider.top_p,
+            max_output_tokens: active_provider.max_output_tokens,
+            memory_policy: active_provider.memory_policy,
             has_api_key,
             price_preset: "builtin",
+            active_provider_id,
+            provider_profiles,
         })
+    }
+
+    fn read_provider_profiles(
+        &self,
+        connection: &Connection,
+    ) -> Result<Vec<ProviderProfileDto>, DatabaseError> {
+        let raw_profiles = self.read_setting(connection, "provider_profiles_json")?;
+        let mut profiles =
+            serde_json::from_str::<Vec<ProviderProfileDto>>(&raw_profiles).unwrap_or_default();
+
+        if profiles.is_empty() {
+            profiles.push(default_provider_profile());
+        }
+
+        for profile in &mut profiles {
+            profile.has_api_key = SecretStore::new().has_api_key(&profile.id);
+        }
+
+        Ok(normalize_provider_profiles(profiles))
+    }
+
+    fn read_active_provider_id(
+        &self,
+        connection: &Connection,
+        profiles: &[ProviderProfileDto],
+    ) -> Result<String, DatabaseError> {
+        let active = self.read_setting(connection, "active_provider_id")?;
+        Ok(normalize_active_provider_id(&active, profiles))
+    }
+
+    fn persist_provider_profiles(
+        &self,
+        connection: &Connection,
+        profiles: &[ProviderProfileDto],
+        active_provider_id: &str,
+    ) -> Result<(), DatabaseError> {
+        let serialized = serde_json::to_string(profiles)
+            .map_err(|error| DatabaseError::Io(std::io::Error::other(error.to_string())))?;
+        self.upsert_setting(connection, "provider_profiles_json", &serialized)?;
+        self.upsert_setting(connection, "active_provider_id", active_provider_id)?;
+        Ok(())
+    }
+
+    fn persist_legacy_active_settings(
+        &self,
+        connection: &Connection,
+        profiles: &[ProviderProfileDto],
+        active_provider_id: &str,
+    ) -> Result<(), DatabaseError> {
+        let active_profile = profiles
+            .iter()
+            .find(|profile| profile.id == active_provider_id)
+            .cloned()
+            .unwrap_or_else(default_provider_profile);
+        self.upsert_setting(connection, "base_url", &active_profile.base_url)?;
+        self.upsert_setting(connection, "model", &active_profile.default_model)?;
+        self.upsert_setting(
+            connection,
+            "temperature",
+            &active_profile.temperature.to_string(),
+        )?;
+        self.upsert_setting(connection, "top_p", &active_profile.top_p.to_string())?;
+        self.upsert_setting(
+            connection,
+            "max_output_tokens",
+            &active_profile.max_output_tokens.to_string(),
+        )?;
+        self.upsert_setting(connection, "memory_policy", &active_profile.memory_policy)?;
+        Ok(())
     }
 
     fn list_conversation_settings_map(
@@ -660,7 +875,7 @@ impl Database {
         let (prompt_message, model, memory_policy, temperature, top_p, max_output_tokens, base_url) =
             self.latest_failed_request_snapshot(&connection, conversation_id)?;
         let api_key = SecretStore::new()
-            .get_api_key()
+            .get_api_key(&global_settings.active_provider_id)
             .map_err(|_| DatabaseError::MissingApiKey)?;
         let request_id = format!("req-{}", now_millis());
         let started_at = now_iso();
@@ -1080,10 +1295,7 @@ impl Database {
         let client = reqwest::Client::new();
         let started_at_instant = SystemTime::now();
         let response_result = client
-            .post(format!(
-                "{}/chat/completions",
-                context.global_base_url.trim_end_matches('/')
-            ))
+            .post(chat_completions_url(&context.global_base_url))
             .header(CONTENT_TYPE, "application/json")
             .header(AUTHORIZATION, format!("Bearer {}", context.api_key))
             .json(&request_body)
@@ -1379,6 +1591,108 @@ fn extract_stream_delta_content(body: &Value) -> String {
             String::new()
         })
         .unwrap_or_default()
+}
+
+fn default_provider_profile() -> ProviderProfileDto {
+    ProviderProfileDto {
+        id: DEFAULT_PROVIDER_ID.to_string(),
+        name: "默认服务".to_string(),
+        base_url: "https://api.openai.com/v1".to_string(),
+        default_model: "gpt-4.1-mini".to_string(),
+        temperature: 0.7,
+        top_p: 1.0,
+        max_output_tokens: 1024,
+        memory_policy: "recent-window".to_string(),
+        enabled: true,
+        has_api_key: SecretStore::new().has_api_key(DEFAULT_PROVIDER_ID),
+        discovered_models: Vec::new(),
+    }
+}
+
+fn normalize_provider_profiles(profiles: Vec<ProviderProfileDto>) -> Vec<ProviderProfileDto> {
+    let mut normalized = profiles
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut profile)| {
+            profile.id = if profile.id.trim().is_empty() {
+                format!("provider-{}", index + 1)
+            } else {
+                profile.id.trim().to_string()
+            };
+            profile.name = if profile.name.trim().is_empty() {
+                format!("服务 {}", index + 1)
+            } else {
+                profile.name.trim().to_string()
+            };
+            profile.base_url = if profile.base_url.trim().is_empty() {
+                "https://api.openai.com/v1".to_string()
+            } else {
+                profile.base_url.trim().to_string()
+            };
+            profile.default_model = if profile.default_model.trim().is_empty() {
+                "gpt-4.1-mini".to_string()
+            } else {
+                profile.default_model.trim().to_string()
+            };
+            profile.memory_policy = if profile.memory_policy.trim().is_empty() {
+                "recent-window".to_string()
+            } else {
+                profile.memory_policy.trim().to_string()
+            };
+            profile.enabled = true;
+            profile.has_api_key = SecretStore::new().has_api_key(&profile.id);
+            profile.discovered_models.sort();
+            profile.discovered_models.dedup();
+            profile
+        })
+        .collect::<Vec<_>>();
+
+    if normalized.is_empty() {
+        normalized.push(default_provider_profile());
+    }
+
+    normalized
+}
+
+fn normalize_active_provider_id(
+    active_provider_id: &str,
+    profiles: &[ProviderProfileDto],
+) -> String {
+    if profiles
+        .iter()
+        .any(|profile| profile.id == active_provider_id.trim())
+    {
+        return active_provider_id.trim().to_string();
+    }
+
+    profiles
+        .first()
+        .map(|profile| profile.id.clone())
+        .unwrap_or_else(|| DEFAULT_PROVIDER_ID.to_string())
+}
+
+fn normalize_endpoint_base(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/').to_string();
+
+    if let Some(stripped) = trimmed.strip_suffix("/chat/completions") {
+        return stripped.to_string();
+    }
+
+    trimmed
+}
+
+fn chat_completions_url(base_url: &str) -> String {
+    let trimmed = base_url.trim().trim_end_matches('/');
+
+    if trimmed.ends_with("/chat/completions") {
+        return trimmed.to_string();
+    }
+
+    format!("{}/chat/completions", trimmed)
+}
+
+fn models_url(base_url: &str) -> String {
+    format!("{}/models", normalize_endpoint_base(base_url))
 }
 
 fn provider_error_message(body: &Value) -> Option<String> {
